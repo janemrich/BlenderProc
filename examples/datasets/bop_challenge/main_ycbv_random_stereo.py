@@ -173,23 +173,25 @@ for i in range(args.num_scenes):
     bpy.context.scene.frame_end = len(colors)//2
 
     # Write data in bop format (left)
-    bproc.writer.write_bop(os.path.join(args.output_dir, 'render'),
+    bproc.writer.write_bop(os.path.join(args.output_dir),
                            target_objects = sampled_target_bop_objs,
                            dataset = 'ycb-stereo-left',
                            depth_scale = 0.1,
                            depths = depth_left,
                            colors = colors_left,
                            color_file_format = "JPEG",
-                           ignore_dist_thres = 10)
+                           ignore_dist_thres = 10,
+                           translation = -baseline/2)
     # Write data in bop format (right)
-    bproc.writer.write_bop(os.path.join(args.output_dir, 'render'),
+    bproc.writer.write_bop(os.path.join(args.output_dir),
                            target_objects = sampled_target_bop_objs,
                            dataset = 'ycb-stereo-right',
                            depth_scale = 0.1,
                            depths = depth_right,
                            colors = colors_right,
                            color_file_format = "JPEG",
-                           ignore_dist_thres = 10)
+                           ignore_dist_thres = 10,
+                           translation = baseline/2)
     
     for obj in (sampled_target_bop_objs + sampled_distractor_bop_objs):      
     # for obj in (sampled_target_bop_objs):      

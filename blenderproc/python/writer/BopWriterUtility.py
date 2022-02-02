@@ -19,7 +19,7 @@ from blenderproc.python.writer.WriterUtility import WriterUtility
 def write_bop(output_dir: str, target_objects: Optional[List[MeshObject]] = None, depths: Optional[List[np.ndarray]] = None, 
               colors: Optional[List[np.ndarray]] = None, color_file_format: str = "PNG", dataset: str = "", 
               append_to_existing_output: bool = True, depth_scale: float = 1.0, jpg_quality: int = 95, save_world2cam: bool = True,
-              ignore_dist_thres: float = 100., m2mm: bool = True, frames_per_chunk: int = 1000):
+              ignore_dist_thres: float = 100., m2mm: bool = True, frames_per_chunk: int = 1000, translation: List[float] = None):
     """Write the BOP data
 
     :param output_dir: Path to the output directory.
@@ -78,7 +78,7 @@ def write_bop(output_dir: str, target_objects: Optional[List[MeshObject]] = None
     BopWriterUtility._write_frames(chunks_dir, dataset_objects=dataset_objects, depths=depths, colors=colors,
                                    color_file_format=color_file_format, frames_per_chunk=frames_per_chunk,
                                    m2mm=m2mm, ignore_dist_thres=ignore_dist_thres, save_world2cam=save_world2cam,
-                                   depth_scale=depth_scale, jpg_quality=jpg_quality)
+                                   depth_scale=depth_scale, jpg_quality=jpg_quality, translation=translation)
 
 
 class BopWriterUtility:
@@ -183,12 +183,13 @@ class BopWriterUtility:
 
     @staticmethod
     def _get_frame_gt(dataset_objects: List[bpy.types.Mesh], unit_scaling: float, ignore_dist_thres: float,
-                      destination_frame: List[str] = ["X", "-Y", "-Z"]):
+                      destination_frame: List[str] = ["X", "-Y", "-Z"], translation: List[float] = None):
         """ Returns GT pose annotations between active camera and objects.
         :param dataset_objects: Save annotations for these objects.
         :param unit_scaling: 1000. for outputting poses in mm
         :param ignore_dist_thres: Distance between camera and object after which object is ignored. Mostly due to failed physics.
         :param destination_frame: Transform poses from Blender internal coordinates to OpenCV coordinates
+        :param translation: camera translation in [x,y,z]
         :return: A list of GT camera-object pose annotations for scene_gt.json
         """
 
@@ -205,6 +206,13 @@ class BopWriterUtility:
             cam_t_m2c = cam_H_m2c.to_translation()
 
             assert "category_id" in obj, "{} object has no custom property 'category_id'".format(obj.get_name())
+
+
+            if translation is not None:
+                cam_t_m2c[0] += translation[0]
+                cam_t_m2c[1] += translation[1]
+                cam_t_m2c[2] += translation[2]
+
             
             # ignore examples that fell through the plane
             if not np.linalg.norm(list(cam_t_m2c)) > ignore_dist_thres:
@@ -258,7 +266,8 @@ class BopWriterUtility:
                       colors: List[np.ndarray] = [],
                       color_file_format: str = "PNG", depth_scale: float = 1.0, frames_per_chunk: int = 1000,
                       m2mm: bool = True,
-                      ignore_dist_thres: float = 100., save_world2cam: bool = True, jpg_quality: int = 95):
+                      ignore_dist_thres: float = 100., save_world2cam: bool = True, jpg_quality: int = 95,
+                      translation: List[float] = None):
         """Write each frame's ground truth into chunk directory in BOP format
 
         :param chunks_dir: Path to the output directory of the current chunk.
@@ -282,6 +291,7 @@ class BopWriterUtility:
         depth_tpath = os.path.join(chunks_dir, '{chunk_id:06d}', 'depth', '{im_id:06d}' + depth_ext)
         chunk_camera_tpath = os.path.join(chunks_dir, '{chunk_id:06d}', 'scene_camera.json')
         chunk_gt_tpath = os.path.join(chunks_dir, '{chunk_id:06d}', 'scene_gt.json')
+        chunk_gt_stereo_center_tpath = os.path.join(chunks_dir, '{chunk_id:06d}', 'scene_gt_stereo_center.json')
 
         # Paths to the already existing chunk folders (such folders may exist
         # when appending to an existing dataset).
@@ -309,11 +319,15 @@ class BopWriterUtility:
 
         # Initialize structures for the GT annotations and camera info.
         chunk_gt = {}
+        chunk_gt_stereo_center = {}
         chunk_camera = {}
         if curr_frame_id != 0:
             # Load GT and camera info of the chunk we are appending to.
             chunk_gt = BopWriterUtility._load_json(
                 chunk_gt_tpath.format(chunk_id=curr_chunk_id), keys_to_int=True)
+            if translation is not None:
+                chunk_gt_stereo_center = BopWriterUtility._load_json(
+                    chunk_gt_stereo_center_tpath.format(chunk_id=curr_chunk_id), keys_to_int=True)
             chunk_camera = BopWriterUtility._load_json(
                 chunk_camera_tpath.format(chunk_id=curr_chunk_id), keys_to_int=True)
 
@@ -331,6 +345,7 @@ class BopWriterUtility:
             # Reset data structures and prepare folders for a new chunk.
             if curr_frame_id == 0:
                 chunk_gt = {}
+                chunk_gt_stereo_center = {}
                 chunk_camera = {}
                 os.makedirs(os.path.dirname(
                     rgb_tpath.format(chunk_id=curr_chunk_id, im_id=0, im_type='PNG')))
@@ -343,6 +358,7 @@ class BopWriterUtility:
             unit_scaling = 1000. if m2mm else 1.
 
             chunk_gt[curr_frame_id] = BopWriterUtility._get_frame_gt(dataset_objects, unit_scaling, ignore_dist_thres)
+            if translation is not None: chunk_gt_stereo_center[curr_frame_id] = BopWriterUtility._get_frame_gt(dataset_objects, unit_scaling, ignore_dist_thres, translation=translation)
             chunk_camera[curr_frame_id] = BopWriterUtility._get_frame_camera(save_world2cam, depth_scale, unit_scaling)
 
             if colors:
@@ -375,6 +391,7 @@ class BopWriterUtility:
 
             # Scale the depth to retain a higher precision (the depth is saved
             # as a 16-bit PNG image with range 0-65535).
+
             depth_mm = 1000.0 * depth  # [m] -> [mm]
             depth_mm_scaled = depth_mm / float(depth_scale)
 
@@ -388,6 +405,7 @@ class BopWriterUtility:
 
                 # Save GT annotations.
                 BopWriterUtility._save_json(chunk_gt_tpath.format(chunk_id=curr_chunk_id), chunk_gt)
+                if translation is not None: BopWriterUtility._save_json(chunk_gt_stereo_center_tpath.format(chunk_id=curr_chunk_id), chunk_gt_stereo_center)
 
                 # Save camera info.
                 BopWriterUtility._save_json(chunk_camera_tpath.format(chunk_id=curr_chunk_id), chunk_camera)
