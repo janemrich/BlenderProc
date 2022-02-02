@@ -15,18 +15,8 @@ args = parser.parse_args()
 
 bproc.init()
 
-# remove existing data for debugging
-import shutil
-from pathlib import Path
-out_path_left = Path('/home/jemrich/BlenderProc/examples/datasets/bop_challenge/output/bop_data/ycb-stereo-left')
-out_path_right = Path('/home/jemrich/BlenderProc/examples/datasets/bop_challenge/output/bop_data/ycb-stereo-right')
-if out_path_left.is_dir():
-    shutil.rmtree(out_path_left)
-if out_path_right.is_dir():
-    shutil.rmtree(out_path_right)
-
 # load bop objects into the scene
-target_bop_objs = bproc.loader.load_bop_objs(bop_dataset_path = os.path.join(args.bop_parent_path, 'ycbv'), mm2m = True)
+target_bop_objs = bproc.loader.load_bop_objs(bop_dataset_path = os.path.join(args.bop_parent_path, 'ycbv'), mm2m = True, model_type='fine')
 
 # load distractor bop objects
 tless_dist_bop_objs = bproc.loader.load_bop_objs(bop_dataset_path = os.path.join(args.bop_parent_path, 'tless'), model_type = 'cad', mm2m = True)
@@ -74,7 +64,7 @@ def sample_pose_func(obj: bproc.types.MeshObject):
     obj.set_rotation_euler(bproc.sampler.uniformSO3())
     
 # activate depth rendering without antialiasing and set amount of samples for color rendering
-bproc.renderer.enable_depth_output(activate_antialiasing=False)
+bproc.renderer.enable_depth_output(activate_antialiasing=True)
 
 for i in range(args.num_scenes):
 
